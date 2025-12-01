@@ -1,5 +1,4 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// prisma/schema.prisma
 
 generator client {
   provider = "prisma-client-js"
@@ -10,38 +9,71 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Modelo do Corretor (CSB)
+model User {
+  id       String @id @default(cuid())
+  name     String
+  email    String @unique
+  password String
+  phone    String @unique // Telefone Evo (sem o 9)
+
+  // RAG Geral do Corretor (Ex: "Sou especialista em redução de custos", "Atendo 24h")
+  ragKnowledgeBase    String? @db.Text 
+  
+  products            Product[]
+  clients             Client[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Modelo de Produto (O Seguro)
+model Product {
+  id          String   @id @default(cuid())
+  name        String   // Ex: "Bradesco Saúde Top Nacional"
+  category    String   // Ex: "Saúde", "Auto", "Vida", "Residencial"
+  
+  // Descrição base do produto
+  description String?  @db.Text 
+  
+  // O "Cérebro" de vendas: Argumentos específicos para este produto
+  // Ex: "Focar na rede referenciada do Sírio Libanês", "Destacar reembolso de 500 reais"
+  salesArguments String? @db.Text 
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  clients     Client[] // Clientes interessados neste produto
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// Modelo de Cliente (O Lead)
 model Client {
-  id               String         @id @default(cuid())
-  name             String
-  whatsapp         String         @unique
-  productSold      String?
-  saleDate         DateTime?      @db.Date
-  status           FollowUpStatus @default(PENDING)
-  lastContactDate  DateTime?
-  nextFollowUpDate DateTime       @default(now())
+  id        String       @id @default(cuid())
+  name      String
+  phone     String       @unique
+  status    ClientStatus @default(PENDENTE_FOLLOWUP)
+  
+  // Vínculo: Lead pertence a um corretor e tem interesse em um produto específico
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id])
+
+  // Memória da conversa
+  summary   String?  @db.Text 
+  history   Json?    // Histórico chat {role, content}
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-model Notification {
-  id     String @id @default(cuid())
-  motivo String
-
-  // Armazena o número de WhatsApp que gerou a notificação
-  // Não usamos uma relação direta para manter simples
-  whatsapp_number String
-
-  // Para sabermos se o admin já viu
-  read      Boolean  @default(false)
-  createdAt DateTime @default(now())
-}
-
-enum FollowUpStatus {
-  PENDING
-  CONTACTED
-  IN_PROGRESS
-  CONVERTED
-  REJECTED
-  PAUSED
+enum ClientStatus {
+  PENDENTE_FOLLOWUP  // Fila para o n8n abordar
+  EM_NEGOCIACAO      // Lucas está conversando
+  COTACAO_SOLICITADA // Sucesso: Cliente pediu valores
+  NAO_INTERESSADO    // Declinou
+  REPORTADO          // Finalizado e enviado ao corretor
 }
