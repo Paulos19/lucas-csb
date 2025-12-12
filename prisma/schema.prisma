@@ -9,71 +9,99 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Modelo do Corretor (CSB)
+// O Corretor (Usuário do Sistema)
 model User {
-  id       String @id @default(cuid())
+  id       String  @id @default(cuid())
   name     String
-  email    String @unique
+  email    String  @unique
   password String
-  phone    String @unique // Telefone Evo (sem o 9)
+  phone    String  @unique // Telefone da Instância do WhatsApp
 
-  // RAG Geral do Corretor (Ex: "Sou especialista em redução de custos", "Atendo 24h")
-  ragKnowledgeBase    String? @db.Text 
+  // Configurações do Agente Lucas
+  welcomeMessage            String? // Mensagem inicial personalizada
+  ragKnowledgeBaseCondensed Json?   // Base de conhecimento (RAG) resumida para a IA
   
-  products            Product[]
-  clients             Client[]
+  // Relacionamentos
+  leads             Lead[]
+  products          InsuranceProduct[]
+  agendamentos      Agendamento[]
   
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-// Modelo de Produto (O Seguro)
-model Product {
-  id          String   @id @default(cuid())
-  name        String   // Ex: "Bradesco Saúde Top Nacional"
-  category    String   // Ex: "Saúde", "Auto", "Vida", "Residencial"
+// O Produto (Seguro) - Anteriormente "Product"
+model InsuranceProduct {
+  id             String @id @default(cuid())
+  name           String // Ex: "Seguro Residencial Bradesco"
+  description    String @db.Text // Descrição para a IA usar como base
+  monthlyPremium Float  // Preço base
   
-  // Descrição base do produto
-  description String?  @db.Text 
-  
-  // O "Cérebro" de vendas: Argumentos específicos para este produto
-  // Ex: "Focar na rede referenciada do Sírio Libanês", "Destacar reembolso de 500 reais"
-  salesArguments String? @db.Text 
+  // Argumentos de Venda (O "Cérebro" de vendas específico deste produto)
+  coverages      Json?  // Coberturas para a IA citar
+  assistances    Json?  // Assistências para a IA citar
 
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
-  clients     Client[] // Clientes interessados neste produto
+  status String @default("ACTIVE")
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
-
-// Modelo de Cliente (O Lead)
-model Client {
-  id        String       @id @default(cuid())
-  name      String
-  phone     String       @unique
-  status    ClientStatus @default(PENDENTE_FOLLOWUP)
-  
-  // Vínculo: Lead pertence a um corretor e tem interesse em um produto específico
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  
-  productId String?
-  product   Product? @relation(fields: [productId], references: [id])
-
-  // Memória da conversa
-  summary   String?  @db.Text 
-  history   Json?    // Histórico chat {role, content}
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+  leads  Lead[] @relation("Interest")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-enum ClientStatus {
-  PENDENTE_FOLLOWUP  // Fila para o n8n abordar
-  EM_NEGOCIACAO      // Lucas está conversando
-  COTACAO_SOLICITADA // Sucesso: Cliente pediu valores
+// O Cliente (Lead) - Anteriormente "Client"
+model Lead {
+  id      String     @id @default(cuid())
+  name    String
+  contato String     @unique // WhatsApp do cliente
+  status  LeadStatus @default(ENTRANTE) // Status do Funil
+
+  // Controle de Prospecção (Scheduler)
+  firstContactSent Boolean @default(false) // Marcado como true após o Lucas enviar o "Oi"
+
+  // Memória e Contexto
+  dynamicData       Json?   // Guarda e-mail, nome confirmado, etc.
+  historicoCompleto Json?   // Histórico do chat para o RAG
+  resumoDaConversa  String? @db.Text
+
+  // Vínculos
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  interestedInProductId String?
+  interestedInProduct   InsuranceProduct? @relation("Interest", fields: [interestedInProductId], references: [id])
+
+  agendamento Agendamento?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Novo Modelo de Agendamento
+model Agendamento {
+  id       String   @id @default(cuid())
+  dataHora DateTime
+  tipo     String   @default("REUNIAO_VENDAS")
+  status   String   @default("CONFIRMADO")
+  resumo   String?  @db.Text // Resumo gerado pela IA
+
+  leadId String @unique
+  lead   Lead   @relation(fields: [leadId], references: [id])
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum LeadStatus {
+  ENTRANTE
+  EM_NEGOCIACAO      // Lucas conversando
+  AGENDADO_COTACAO   // Sucesso: Agendou reunião
   NAO_INTERESSADO    // Declinou
-  REPORTADO          // Finalizado e enviado ao corretor
+  VENDIDO            // Finalizado
+  ARQUIVADO
 }
